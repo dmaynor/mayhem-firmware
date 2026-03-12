@@ -1465,6 +1465,54 @@ static void cmd_rxstop(BaseSequentialStream* chp, int argc, char* argv[]) {
     chprintf(chp, "ok\r\n");
 }
 
+static void cmd_rssi_stream(BaseSequentialStream* chp, int argc, char* argv[]) {
+    const char* usage = "usage: rssi_stream [interval_ms]\r\n  Streams RSSI readings until any key pressed.\r\n  Default interval: 100ms\r\n";
+    if (argc > 1) {
+        chprintf(chp, usage);
+        return;
+    }
+
+    int interval_ms = 100;
+    if (argc == 1) {
+        interval_ms = atoi(argv[0]);
+        if (interval_ms < 10) interval_ms = 10;
+        if (interval_ms > 5000) interval_ms = 5000;
+    }
+
+    /* Verify baseband is active */
+    uint32_t prev_update = global_stats_update_count;
+    int wait_ms = 0;
+    while (global_stats_update_count == prev_update && wait_ms < 500) {
+        chThdSleepMilliseconds(10);
+        wait_ms += 10;
+    }
+    if (global_stats_update_count == prev_update) {
+        chprintf(chp, "error: no baseband active\r\n");
+        return;
+    }
+
+    chprintf(chp, "streaming\r\n");
+
+    /* Stream until any byte received */
+    uint8_t stop_byte;
+    while (true) {
+        prev_update = global_stats_update_count;
+        /* Wait for fresh M4 data, up to interval */
+        wait_ms = 0;
+        while (global_stats_update_count == prev_update && wait_ms < interval_ms) {
+            chThdSleepMilliseconds(10);
+            wait_ms += 10;
+        }
+        chprintf(chp, "%d\r\n", (int)global_last_max_db);
+
+        /* Non-blocking check: any input byte stops the stream */
+        if (chnReadTimeout((BaseChannel*)chp, &stop_byte, 1, TIME_IMMEDIATE) > 0)
+            break;
+    }
+
+    chprintf(chp, "ok\r\n");
+}
+
 static void cmd_getres(BaseSequentialStream* chp, int argc, char* argv[]) {
     (void)argc;
     (void)argv;
@@ -1583,6 +1631,7 @@ static const ShellCommand commands[] = {
     {"rssi", cmd_rssi},
     {"rxstart", cmd_rxstart},
     {"rxstop", cmd_rxstop},
+    {"rssi_stream", cmd_rssi_stream},
     {"getres", cmd_getres},
     {"getflash", cmd_getflash},
     {"getdevtype", cmd_getdevtype},

@@ -90,6 +90,10 @@ void draw_guru_meditation(uint8_t source, const char* hint) {
     if (error_shown == false) {
         error_shown = true;
         draw_guru_meditation_header(source, hint);
+
+        /* Auto-dump stack to SD card on crash */
+        if (source == CORTEX_M0)
+            stack_dump();
     }
 
     runtime_error(source);
@@ -121,6 +125,10 @@ void draw_guru_meditation(uint8_t source, const char* hint, struct extctx* ctxp,
             if (cfsr != 0)
                 draw_line(80 + i++ * 20, "cfsr:", (void*)cfsr);
         }
+
+        /* Auto-dump stack to SD card on crash */
+        if (source == CORTEX_M0)
+            stack_dump();
     }
 
     runtime_error(source);
@@ -135,22 +143,37 @@ void draw_line(int32_t y_offset, const char* label, regarm_t value) {
 
 void runtime_error(uint8_t source) {
     LED led = (source == CORTEX_M0) ? hackrf::one::led_rx : hackrf::one::led_tx;
+    Painter painter;
 
     led.off();
 
-    // wait for DFU button release if pressed, so we don't immediately jump into stack dump
+    // wait for DFU button release if pressed
     while (swizzled_switches() & (1 << (int)Switch::Dfu));
 
-    while (true) {
+    painter.draw_string({24, 320 - 56}, *Theme::getInstance()->bg_darkest, "DFU=Stack Dump");
+    painter.draw_string({24, 320 - 32}, *Theme::getInstance()->bg_darkest, "SEL=Reboot 60s");
+
+    // ~60 second timeout: each blink cycle is ~1s, so 60 iterations
+    for (int countdown = 60; countdown > 0; countdown--) {
         volatile size_t n = 1000000U;
         while (n--);
         led.toggle();
 
-        // Stack dump will cover entire screen, so wait for DFU button press to attempt it
-        if (swizzled_switches() & (1 << (int)Switch::Dfu)) {
+        auto switches = swizzled_switches();
+
+        // DFU button: manual stack dump view (resets countdown)
+        if (switches & (1 << (int)Switch::Dfu)) {
             draw_stack_dump();
+            countdown = 60;
+        }
+
+        // SELECT button: immediate reboot
+        if (switches & (1 << (int)Switch::Sel)) {
+            break;
         }
     }
+
+    NVIC_SystemReset();
 }
 
 // This function should only be called with interrupts disabled due to reading swizzled_switches()
