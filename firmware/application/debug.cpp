@@ -173,7 +173,7 @@ void runtime_error(uint8_t source) {
         }
     }
 
-    NVIC_SystemReset();
+    LPC_RGU->RESET_CTRL[0] = (1 << 0);
 }
 
 // This function should only be called with interrupts disabled due to reading swizzled_switches()
